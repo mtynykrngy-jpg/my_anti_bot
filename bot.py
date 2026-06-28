@@ -92,3 +92,27 @@ def check_captcha(message):
 
 print("بات روشن شد ✅")
 bot.infinity_polling()
+# ========== دستورات متنی ادمین ==========
+ADMIN_IDS = [123456789]  # آیدی خودتو بزار
+
+@bot.message_handler(func=lambda m: m.text and m.reply_to_message and m.from_user.id in ADMIN_IDS)
+def admin_text_commands(message):
+    text = message.text.strip().lower()
+
+    # بن کردن — با "بن" یا "سیک" یا "اخراج"
+    if text in ['بن', 'سیک بن', 'بکن بن', 'اخراج', 'kick', 'ban']:
+        user_id = message.reply_to_message.from_user.id
+        bot.kick_chat_member(message.chat.id, user_id)
+        bot.send_message(message.chat.id, f"⛔ @{message.reply_to_message.from_user.username or 'کاربر'} بن شد!")
+
+    # سکوت — با "سکوت" یا "mute" یا "میکروفون"
+    elif text in ['سکوت', 'mute', 'میکروفون', 'ساکت']:
+        user_id = message.reply_to_message.from_user.id
+        bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=False)
+        bot.send_message(message.chat.id, f"🔇 @{message.reply_to_message.from_user.username or 'کاربر'} سکوت شد!")
+
+    # رفع سکوت — با "آن سکوت" یا "unmute" یا "حرف بزنه"
+    elif text in ['آن سکوت', 'unmute', 'حرف بزنه', 'بازکردن', 'صدا']:
+        user_id = message.reply_to_message.from_user.id
+        bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+        bot.send_message(message.chat.id, f"🔊 @{message.reply_to_message.from_user.username or 'کاربر'} سکوت برداشته شد!")
