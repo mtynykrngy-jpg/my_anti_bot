@@ -1,40 +1,94 @@
-from telegram import Update, ChatPermissions
-from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes
+import telebot
+from telebot import types
+import time
 import re
+import random
 
-TOKEN = "8748296863:AAGFRkU-ScWX70mGXpPiptgjG7mXKFVizs8"
+TOKEN = "توکن_باتت_رو_اینجا_بزار"
+bot = telebot.TeleBot(TOKEN)
 
-# حذف لینک
-async def delete_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
+@bot.message_handler(content_types=['new_chat_members'])
+def welcome_new_member(message):
+    for member in message.new_chat_members:
+        if member.id == bot.get_me().id:
+            return
+        name = member.first_name or "کاربر"
+        bot.send_message(message.chat.id, f"🎉 خوش اومدی {name} جان!\n📜 قوانین گروه رو بخون و لذت ببر 😎")
+
+@bot.message_handler(content_types=['new_chat_members'])
+def silent_mode(message):
+    bot.restrict_chat_member(
+        message.chat.id,
+        message.new_chat_members[0].id,
+        until_date=int(time.time()) + 180,
+        can_send_messages=False
+    )
+
+@bot.message_handler(func=lambda m: m.forward_from is not None or m.forward_from_chat is not None)
+def anti_forward(message):
+    bot.delete_message(message.chat.id, message.message_id)
+    bot.send_message(message.chat.id, "❌ فوروارد پیام ممنوع!")
+
+@bot.message_handler(func=lambda m: m.text and not m.text.startswith('/'))
+def filter_message(message):
+    text = message.text
+    chat_id = message.chat.id
+    if re.search(r'(https?://|t\.me/|www\.)', text, re.IGNORECASE):
+        bot.delete_message(chat_id, message.message_id)
+        bot.send_message(chat_id, f"🚫 @{message.from_user.username or message.from_user.first_name} لینک ممنوع!")
         return
-    chat_id = update.message.chat_id
-    text = update.message.text or ""
+    spam_words = ['تلگرام یاب', 'فروش ممبر', 'ساخت گروه', 'تبلیغات', 'کانال', 'join']
+    for word in spam_words:
+        if word in text.lower():
+            bot.delete_message(chat_id, message.message_id)
+            bot.send_message(chat_id, f"🚫 @{message.from_user.username or message.from_user.first_name} تبلیغ ممنوع!")
+            return
 
-    # چک کردن لینک
-    link_pattern = r'(https?://[^\s]+|t\.me/[^\s]+|@\w+)'
-    if re.search(link_pattern, text):
-        await update.message.delete()
-        await context.bot.send_message(chat_id, f"❌ لینک ممنوع!\nکاربر: {update.message.from_user.first_name}")
+user_msg_count = {}
+user_last_time = {}
 
-# خوشامدگویی
-async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for member in update.message.new_chat_members:
-        await update.message.reply_text(f"🎉 خوش آمدی {member.first_name} عزیز!\nبه گروه خوش اومدی ❤️")
+@bot.message_handler(func=lambda m: True)
+def anti_spam(message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    now = time.time()
+    if user_id in user_last_time and now - user_last_time[user_id] < 2:
+        user_msg_count[user_id] = user_msg_count.get(user_id, 0) + 1
+        if user_msg_count[user_id] > 3:
+            bot.restrict_chat_member(chat_id, user_id, until_date=int(now) + 60, can_send_messages=False)
+            bot.send_message(chat_id, f"⛔ @{message.from_user.username or message.from_user.first_name} اسپم کردی، ۱ دقیقه سکوت!")
+            user_msg_count[user_id] = 0
+    else:
+        user_msg_count[user_id] = 0
+    user_last_time[user_id] = now
 
-# استارت
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 سلام! من بات مدیریت گروه هستم.\nاضافم کن به گروهت و ادمینم کن!")
+waiting_captcha = {}
 
-def main():
-    app = Application.builder().token(TOKEN).build()
+@bot.message_handler(content_types=['new_chat_members'])
+def captcha_new_user(message):
+    user_id = message.new_chat_members[0].id
+    if user_id == bot.get_me().id:
+        return
+    num1 = random.randint(1, 10)
+    num2 = random.randint(1, 10)
+    bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=False)
+    msg = bot.send_message(message.chat.id, f"🧮 {num1} + {num2} = ? (برای اثبات انسان بودن)")
+    waiting_captcha[user_id] = {"answer": num1 + num2, "msg_id": msg.message_id}
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, delete_links))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
+@bot.message_handler(func=lambda m: m.from_user.id in waiting_captcha)
+def check_captcha(message):
+    user_id = message.from_user.id
+    try:
+        if int(message.text) == waiting_captcha[user_id]["answer"]:
+            bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+            bot.send_message(message.chat.id, "✅ کپچا درست بود، خوش اومدی!")
+        else:
+            bot.kick_chat_member(message.chat.id, user_id)
+            bot.send_message(message.chat.id, "❌ جواب غلط، بن شدی!")
+    except:
+        pass
+    finally:
+        del waiting_captcha[user_id]
 
-    print("🤖 بات روشن شد!")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+print("بات روشن شد ✅")
+bot.infinity_polling()
